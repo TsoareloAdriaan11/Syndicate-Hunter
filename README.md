@@ -17,7 +17,7 @@ Traditional SQL databases often struggle to detect circular money laundering sch
 | :--- | :--- | :--- |
 | **Data Generation** | Python (`pandas`, `faker`) | Created 1,000+ realistic banking transactions and injected a specific 5-node fraud ring. |
 | **Database** | Neo4j (Graph DB) | Modeled accounts as **Nodes** (`(:Client)`) and transactions as **Relationships** (`[:SENT_MONEY]`). |
-| **Analysis** | Cypher Query Language (CQL) | Wrote pattern-matching algorithms to detect cycles of length 5 with amounts > R40,000. |
+| **Analysis** | Cypher Query Language (CQL) | Wrote pattern-matching algorithms with the help of LLMs to detect cycles of length 5 with amounts > R40,000. |
 
 ---
 
