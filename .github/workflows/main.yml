@@ -20,7 +20,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install neo4j faker
+          pip install neo4j faker python-dotenv
 
       - name: Run the Detection Engine
         env: # <--- THIS IS THE NEW PART
