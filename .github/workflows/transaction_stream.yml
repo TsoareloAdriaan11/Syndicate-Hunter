@@ -1,0 +1,71 @@
+# .github/workflows/transaction_stream.yml
+#
+# Live Transaction Stream — runs continuously as a long-running GitHub Actions job.
+#
+# How it works:
+#   • Triggers every 6 hours via cron (GitHub Actions max job duration is 6h)
+#   • The Python stream runs for 5h 50m, then exits cleanly
+#   • The next cron trigger picks up immediately — creating a seamless 24/7 stream
+#   • Overlap protection: "concurrency" ensures only ONE stream runs at a time
+#
+# Environment variables (all injected from GitHub Secrets):
+#   NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD  — AuraDB connection
+#   STREAM_INTERVAL_SECONDS   — seconds between transaction bursts (default: 15)
+#   NORMAL_TXN_PER_CYCLE      — normal transactions per cycle (default: 5)
+#   AML_INJECT_PROBABILITY    — 0.0–1.0 chance of AML burst per cycle (default: 0.15)
+#   GLITCH_INJECT_PROBABILITY — 0.0–1.0 chance of glitch event per cycle (default: 0.15)
+
+name: Live Transaction Stream
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"    # Every 6 hours — 00:00, 06:00, 12:00, 18:00 UTC
+  workflow_dispatch:           # Manual trigger available
+
+# Prevent two stream jobs running simultaneously
+concurrency:
+  group: live-transaction-stream
+  cancel-in-progress: false    # Don't kill a running stream; let it finish
+
+jobs:
+  stream:
+    name: Continuous Transaction Stream
+    runs-on: ubuntu-latest
+    timeout-minutes: 360       # 6-hour hard cap (GitHub Actions maximum)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start live transaction stream
+        env:
+          NEO4J_URI:                ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME:           ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD:           ${{ secrets.NEO4J_PASSWORD }}
+          STREAM_INTERVAL_SECONDS:  "15"
+          NORMAL_TXN_PER_CYCLE:     "5"
+          AML_INJECT_PROBABILITY:   "0.15"
+          GLITCH_INJECT_PROBABILITY: "0.15"
+          MAX_RUNTIME_SECONDS:      "21000"   # 5h 50m — exits before 6h Actions limit
+        run: |
+          cd src
+          python transaction_stream.py
+
+      - name: Upload stream log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-log-${{ github.run_id }}
+          path: src/
+          retention-days: 7
