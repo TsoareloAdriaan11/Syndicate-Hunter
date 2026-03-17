@@ -1,0 +1,5 @@
+# Financial Risk Engine — Python Dependencies
+
+neo4j==5.19.0          # Official Neo4j AuraDB driver
+Faker==25.2.0          # Synthetic KYC data generation
+python-dotenv==1.0.1   # Local .env support for dev testing
