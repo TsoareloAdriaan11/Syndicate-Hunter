@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from faker import Faker
 from db_connection import Neo4jConnection
 
-fake    = Faker("en_ZA")          # South African locale for ZA-realistic data
+fake    = Faker()          # South African locale for ZA-realistic data
 logger  = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
