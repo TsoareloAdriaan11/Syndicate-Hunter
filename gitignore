@@ -1,12 +1,6 @@
 # Secrets — never commit
 .env
-NEO4J_URI=neo4j+s://9dba8c07.databases.neo4j.io
-NEO4J_USERNAME=9dba8c07
-NEO4J_PASSWORD=TzVe-VEB2-c_HJbaQDh4xlf-tO2aNKt8tHIcwhct4gw
 
-ALERT_EMAIL_SENDER=riskengine@gmail.com
-ALERT_EMAIL_PASSWORD=wktz sgkt gmar sfaa
-ALERT_EMAIL_RECIPIENT=tsoarelorikhotso21@gmail.com
 # Python
 __pycache__/
 *.py[cod]
