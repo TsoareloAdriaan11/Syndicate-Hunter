@@ -15,7 +15,8 @@ Stream composition (per cycle):
   ─ 15% → AML smurfing ring transactions
   ─ 15% → FNB/Takealot-style glitch duplicate charges
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import sys
 import time
