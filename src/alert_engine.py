@@ -223,19 +223,22 @@ class AlertEngine:
         f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{f['hops']} hops</td>"
         f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{f['total_laundered_zar']:,.2f}</td>"
         f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>"
-        f"<span style='color:{sev_color}'>{f['severity']}</span></td></tr>"
-    )
-     if not aml_rows:
+        f"<span style='color:{sev_color}'>{f['severity']}</span></td></tr>")
+      if not aml_rows:
        aml_rows = "<tr><td colspan='4' style='padding:10px;color:#999'>None detected</td></tr>"
 
-        glitch_rows = "".join([
-            f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{f['customer_name']}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{f['merchant_name']}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{f['overcharged_zar']:,.2f}</td>"
-            f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>"
-            f"<span style='color:{SEVERITY_COLORS.get(f[\"severity\"],\"#999\")}'>{f['severity']}</span></td></tr>"
-            for f in glitch
-        ]) or "<tr><td colspan='4' style='padding:10px;color:#999'>None detected</td></tr>"
+      glitch_rows = ""
+      for f in glitch:
+        sev_color = SEVERITY_COLORS.get(f["severity"], "#999")
+        glitch_rows += (
+        f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{f['customer_name']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{f['merchant_name']}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{f['overcharged_zar']:,.2f}</td>"
+        f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>"
+        f"<span style='color:{sev_color}'>{f['severity']}</span></td></tr>")
+    
+      if not glitch_rows:
+        glitch_rows = "<tr><td colspan='4' style='padding:10px;color:#999'>None detected</td></tr>"
 
         return f"""
         <html><body style="font-family:Arial,sans-serif;background:#f4f4f4;padding:20px">
