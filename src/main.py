@@ -53,7 +53,7 @@ def main():
 
         # ── 2. Glitch Detection ────────────────────────────────────────────
         logger.info("\n⚡ Step 2/3: Running payment glitch detection...")
-        glitch_detector = GlitchDetector(conn, window_seconds=60)
+        glitch_detector = GlitchDetector(conn, window_seconds=21600)
         glitch_findings = glitch_detector.run_all()
         impact_summary  = glitch_detector.get_impact_summary()
 
