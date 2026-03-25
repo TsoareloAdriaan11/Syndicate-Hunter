@@ -3,9 +3,9 @@ aml_detector.py
 Anti-Money Laundering detection engine.
 
 Uses Cypher graph traversal to identify closed-loop "smurfing" rings:
-  → Multi-hop circular transaction flows between accounts
-  → Sub-threshold amounts designed to evade FICA reporting (< R5 000)
-  → Returns structured AML findings for the alert engine
+  -> Multi-hop circular transaction flows between accounts
+  -> Sub-threshold amounts designed to evade FICA reporting (< R5 000)
+  -> Returns structured AML findings for the alert engine
 """
 
 import logging
@@ -14,19 +14,9 @@ from db_connection import Neo4jConnection
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Cypher: Closed-loop ring detection (2–5 hops)
+# Cypher: Closed-loop ring detection (2-hop)
 # ─────────────────────────────────────────────────────────────────────────────
 
-RING_DETECTION_QUERY = """
-MATCH path = (start:Account)-[:SENT*2..5]->(:Transaction)-[:TO]->(start)
-WITH start, path,
-     [r IN relationships(path) WHERE type(r) = 'SENT' | r] AS sent_rels,
-     nodes(path) AS path_nodes
-MATCH (start)<-[:OWNS]-(c:Customer)
-WITH start, path, c, path_nodes,
-     size([n IN path_nodes WHERE n:Transaction]) AS hop_count
-WITH start, path, c, hop_count,
-     [n IN path_nodes WHERE n:Transaction | n.amount] AS amounts
 RING_DETECTION_QUERY = """
 MATCH (a:Account)-[:SENT]->(t:Transaction)-[:TO]->(b:Account)-[:SENT]->(t2:Transaction)-[:TO]->(a)
 WITH a, b, t, t2,
@@ -47,7 +37,7 @@ LIMIT 25
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Cypher: Sub-threshold structuring detection
-# Flags accounts with > 5 transactions between R1 000–R4 999 within 24 hours
+# Flags accounts with > 5 transactions between R1 000-R4 999 within 24 hours
 # ─────────────────────────────────────────────────────────────────────────────
 
 STRUCTURING_QUERY = """
@@ -84,11 +74,11 @@ class AMLDetector:
         Detect closed-loop circular transaction rings (smurfing).
         Returns a list of AML finding dictionaries.
         """
-        logger.info("🔍 Scanning for AML smurfing rings...")
+        logger.info("Scanning for AML smurfing rings...")
         results = self.conn.query(RING_DETECTION_QUERY)
 
         if not results:
-            logger.info("✅ No AML smurfing rings detected.")
+            logger.info("No AML smurfing rings detected.")
             return []
 
         findings = []
@@ -112,23 +102,23 @@ class AMLDetector:
             }
             findings.append(finding)
             logger.warning(
-                "🚨 AML Ring | %s | %d hops | R%.2f | %s",
+                "AML Ring | %s | %d hops | R%.2f | %s",
                 row["ring_account"], row["hops"],
                 row["total_laundered"], row["customer_name"],
             )
 
-        logger.info("🏁 AML scan complete. %d ring(s) found.", len(findings))
+        logger.info("AML scan complete. %d ring(s) found.", len(findings))
         return findings
 
-   def detect_structuring(self) -> list[dict]:
+    def detect_structuring(self) -> list[dict]:
         """
         Detect transaction structuring: many sub-threshold transfers in 24h.
         """
-        logger.info("🔍 Scanning for transaction structuring...")
+        logger.info("Scanning for transaction structuring...")
         results = self.conn.query(STRUCTURING_QUERY)
 
         if not results:
-            logger.info("✅ No structuring patterns detected.")
+            logger.info("No structuring patterns detected.")
             return []
 
         findings = []
@@ -151,12 +141,12 @@ class AMLDetector:
             }
             findings.append(finding)
             logger.warning(
-                "🚨 Structuring | %s | %d txns | R%.2f",
+                "Structuring | %s | %d txns | R%.2f",
                 row["account_id"], row["suspicious_txn_count"],
                 row["total_structured_amount"],
             )
 
-        logger.info("🏁 Structuring scan complete. %d finding(s).", len(findings))
+        logger.info("Structuring scan complete. %d finding(s).", len(findings))
         return findings
 
     def run_all(self) -> list[dict]:
