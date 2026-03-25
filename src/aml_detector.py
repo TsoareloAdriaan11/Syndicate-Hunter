@@ -27,17 +27,22 @@ WITH start, path, c, path_nodes,
      size([n IN path_nodes WHERE n:Transaction]) AS hop_count
 WITH start, path, c, hop_count,
      [n IN path_nodes WHERE n:Transaction | n.amount] AS amounts
-WHERE ALL(a IN amounts WHERE a IS NOT NULL AND a < 5000)
+RING_DETECTION_QUERY = """
+MATCH (a:Account)-[:SENT]->(t:Transaction)-[:TO]->(b:Account)-[:SENT]->(t2:Transaction)-[:TO]->(a)
+WITH a, b, t, t2,
+     [t.amount, t2.amount] AS amounts
+MATCH (a)<-[:OWNS]-(c:Customer)
 RETURN
-    start.account_id      AS ring_account,
+    a.account_id          AS ring_account,
     c.customer_id         AS customer_id,
     c.full_name           AS customer_name,
     c.email               AS customer_email,
-    hop_count             AS hops,
+    2                     AS hops,
     amounts               AS transaction_amounts,
-    reduce(total = 0.0, a IN amounts | total + a) AS total_laundered,
-    [n IN nodes(path) WHERE n:Transaction | n.txn_id] AS txn_ids
+    t.amount + t2.amount  AS total_laundered,
+    [t.txn_id, t2.txn_id] AS txn_ids
 ORDER BY total_laundered DESC
+LIMIT 25
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
