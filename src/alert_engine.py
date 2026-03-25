@@ -108,7 +108,7 @@ class AlertEngine:
     def _aml_subject(f: dict) -> str:
         return (
             f"[{f['severity']}] 🚨 AML Smurfing Ring | "
-            f"{f['hops']}-Hop | R{f['total_laundered_zar']:,.2f} | {f['customer_name']}"
+            f"{f.get('hops', '?')}-Hop | R{f['total_laundered_zar']:,.2f} | {f['customer_name']}"
         )
 
     @staticmethod
@@ -138,7 +138,7 @@ class AlertEngine:
             {_row("Ring Account",       f['ring_account'])}
             {_row("Customer ID",        f['customer_id'])}
             {_row("Customer Name",      f['customer_name'])}
-            {_row("Hops in Ring",       str(f['hops']))}
+            {_row("Hops in Ring",       str(f.get('hops', len(f.get('txn_ids', [])))))}
             {_row("Transaction Amounts", amounts)}
             {_row("Total Laundered",    f"<strong>R{f['total_laundered_zar']:,.2f}</strong>")}
             {_row("Transaction IDs",    "<br>".join(f['txn_ids']))}
