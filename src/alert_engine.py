@@ -62,11 +62,17 @@ class AlertEngine:
         self._send(subject, body)
 
     def send_run_summary(self, aml_findings: list, glitch_findings: list,
-                         impact_summary: dict):
-        """Send an end-of-run digest with all findings."""
-        total = len(aml_findings) + len(glitch_findings)
+                         impact_summary: dict, total_aml: int = 0,
+                         total_glitch: int = 0, run_id: str = ""):
+        """Send an end-of-run digest with top 50 of each + full report link."""
+        total_aml    = total_aml    or len(aml_findings)
+        total_glitch = total_glitch or len(glitch_findings)
+        total        = total_aml + total_glitch
         subject = f"[RISK ENGINE] Scan Complete — {total} Finding(s) | {_now()}"
-        body    = self._summary_html_body(aml_findings, glitch_findings, impact_summary)
+        body    = self._summary_html_body(
+            aml_findings, glitch_findings, impact_summary,
+            total_aml, total_glitch, run_id
+        )
         self._send(subject, body)
 
     def send_clean_run(self):
@@ -108,7 +114,7 @@ class AlertEngine:
     def _aml_subject(f: dict) -> str:
         return (
             f"[{f['severity']}] 🚨 AML Smurfing Ring | "
-            f"{f.get('hops', '?')}-Hop | R{f['total_laundered_zar']:,.2f} | {f['customer_name']}"
+            f"{f['hops']}-Hop | R{f['total_laundered_zar']:,.2f} | {f['customer_name']}"
         )
 
     @staticmethod
@@ -138,7 +144,7 @@ class AlertEngine:
             {_row("Ring Account",       f['ring_account'])}
             {_row("Customer ID",        f['customer_id'])}
             {_row("Customer Name",      f['customer_name'])}
-            {_row("Hops in Ring",       str(f.get('hops', len(f.get('txn_ids', [])))))}
+            {_row("Hops in Ring",       str(f['hops']))}
             {_row("Transaction Amounts", amounts)}
             {_row("Total Laundered",    f"<strong>R{f['total_laundered_zar']:,.2f}</strong>")}
             {_row("Transaction IDs",    "<br>".join(f['txn_ids']))}
@@ -210,18 +216,29 @@ class AlertEngine:
         """
 
     @staticmethod
-    def _summary_html_body(aml: list, glitch: list, impact: dict) -> str:
-        total = len(aml) + len(glitch)
-        total_aml_amount    = sum(f.get("total_laundered_zar", 0) for f in aml)
+    def _summary_html_body(aml: list, glitch: list, impact: dict,
+                           total_aml: int = 0, total_glitch: int = 0,
+                           run_id: str = "") -> str:
+        total_aml    = total_aml    or len(aml)
+        total_glitch = total_glitch or len(glitch)
+        total = total_aml + total_glitch
+        total_aml_amount    = sum(f.get("total_laundered_zar", f.get("total_structured_amount", 0)) for f in aml)
         total_glitch_amount = sum(f.get("overcharged_zar", 0) for f in glitch)
+
+        # Build report download link
+        repo = "TsoareloAdriaan11/Financial-Risk-Engine"
+        report_link = f"https://github.com/{repo}/actions/runs/{run_id}/artifacts" if run_id else "#"
 
         aml_rows = ""
         for f in aml:
             sev_color = SEVERITY_COLORS.get(f["severity"], "#999")
+            name = f.get("customer_name", f.get("account_id", "Unknown"))
+            amount = f.get("total_laundered_zar", f.get("total_structured_amount", 0))
+            hops = f.get("hops", len(f.get("txn_ids", [])))
             aml_rows += (
-                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{f.get('customer_name', f.get('account_id', 'Unknown'))}</td>"
-                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{f.get('hops', len(f.get('txn_ids', [])))} accounts</td>"
-                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{f.get('total_laundered_zar', f.get('total_structured_amount', 0)):,.2f}</td>"
+                f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{name}</td>"
+                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{hops} accounts</td>"
+                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{amount:,.2f}</td>"
                 f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>"
                 f"<span style='color:{sev_color}'>{f['severity']}</span></td></tr>"
             )
@@ -249,13 +266,28 @@ class AlertEngine:
             <span style="color:#ffffffcc;font-size:13px">{_now()} — {total} total finding(s)</span>
           </div>
           <div style="padding:20px;display:flex;gap:16px">
-            {_stat_card("AML Rings", str(len(aml)), "#FC8181")}
-            {_stat_card("Glitch Duplicates", str(len(glitch)), "#F6AD55")}
+            {_stat_card("AML Rings", str(total_aml), "#FC8181")}
+            {_stat_card("Glitch Duplicates", str(total_glitch), "#F6AD55")}
             {_stat_card("AML Exposure", f"R{total_aml_amount:,.0f}", "#68D391")}
             {_stat_card("Glitch Refunds", f"R{total_glitch_amount:,.0f}", "#76E4F7")}
           </div>
+          <div style="background:#ebf8ff;border-left:4px solid #2b6cb0;padding:16px 20px;margin:0 20px 20px">
+            <strong style="color:#2b6cb0">📎 Full Anomaly Report Available</strong><br>
+            <span style="font-size:13px;color:#4a5568">
+              This email shows the top 50 AML and top 50 glitch findings.<br>
+              The complete report with all {total} findings and Neo4j investigation links is attached as a downloadable artifact:<br><br>
+              <a href="{report_link}" target="_blank"
+                 style="background:#2b6cb0;color:#fff;padding:8px 16px;border-radius:4px;text-decoration:none;font-size:13px;display:inline-block">
+                 Download Full Report (HTML)
+              </a>
+              <br><br>
+              <span style="font-size:11px;color:#718096">
+                GitHub Actions → Run #{run_id} → Artifacts → risk-report
+              </span>
+            </span>
+          </div>
           <div style="padding:0 20px 20px">
-            <h3>AML Findings</h3>
+            <h3>AML Findings (Showing top {len(aml)} of {total_aml} detected)</h3>
             <table width="100%" style="border-collapse:collapse;font-size:13px">
               <tr style="background:#f7fafc">
                 <th style="padding:8px 10px;text-align:left">Customer</th>
@@ -265,7 +297,7 @@ class AlertEngine:
               </tr>
               {aml_rows}
             </table>
-            <h3>Payment Glitch Findings</h3>
+            <h3>Payment Glitch Findings (Showing top {len(glitch)} of {total_glitch} detected)</h3>
             <table width="100%" style="border-collapse:collapse;font-size:13px">
               <tr style="background:#f7fafc">
                 <th style="padding:8px 10px;text-align:left">Customer</th>
