@@ -5,21 +5,13 @@
 # Triggers:
 #   • Scheduled: Every 6 hours (cron)
 #   • Manual: "Run workflow" button in GitHub Actions UI
-#
-# Required GitHub Actions Secrets (Settings → Secrets → Actions):
-#   NEO4J_URI               → AuraDB connection URI  (neo4j+s://xxxx.databases.neo4j.io)
-#   NEO4J_USERNAME          → AuraDB username        (default: neo4j)
-#   NEO4J_PASSWORD          → AuraDB password
-#   ALERT_EMAIL_SENDER      → Gmail address          (e.g. riskengine@gmail.com)
-#   ALERT_EMAIL_PASSWORD    → Gmail App Password     (NOT your Gmail password)
-#   ALERT_EMAIL_RECIPIENT   → Analyst email address
 
 name: Financial Risk Engine
 
 on:
   schedule:
-    - cron: "0 */6 * * *"   # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
-  workflow_dispatch:          # Allows manual trigger from GitHub Actions UI
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
 
 jobs:
   run-risk-engine:
@@ -28,24 +20,20 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      # ── Checkout ────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── Python setup ────────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # ── Dependencies ─────────────────────────────────────────────────────
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ── Run engine ───────────────────────────────────────────────────────
       - name: Execute Financial Risk Engine
         env:
           NEO4J_URI:             ${{ secrets.NEO4J_URI }}
@@ -54,11 +42,21 @@ jobs:
           ALERT_EMAIL_SENDER:    ${{ secrets.ALERT_EMAIL_SENDER }}
           ALERT_EMAIL_PASSWORD:  ${{ secrets.ALERT_EMAIL_PASSWORD }}
           ALERT_EMAIL_RECIPIENT: ${{ secrets.ALERT_EMAIL_RECIPIENT }}
+          GITHUB_RUN_ID:         ${{ github.run_id }}
         run: |
           cd src
           python main.py
 
-      # ── Upload logs as artifact ──────────────────────────────────────────
+      # ── Upload full HTML report as downloadable artifact ─────────────────
+      - name: Upload anomaly report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-report-${{ github.run_id }}
+          path: src/risk_report_*.html
+          retention-days: 90
+
+      # ── Upload logs ───────────────────────────────────────────────────────
       - name: Upload run log
         if: always()
         uses: actions/upload-artifact@v4
