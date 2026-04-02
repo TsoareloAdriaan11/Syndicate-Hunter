@@ -64,6 +64,9 @@ class AlertEngine:
     def send_run_summary(self, aml_findings: list, glitch_findings: list,
                          impact_summary: dict, total_aml: int = 0,
                          total_glitch: int = 0, run_id: str = ""):
+        repo_name = os.environ.get("GITHUB_REPOSITORY", "TsoareloAdriaan11/Financial-Risk-Engine")
+        # 2. Point the link to the GitHub Actions Run Page
+        report_url = f"https://github.com/{repo_name}/actions/runs/{run_id}"
         """Send an end-of-run digest with top 50 of each + full report link."""
         total_aml    = total_aml    or len(aml_findings)
         total_glitch = total_glitch or len(glitch_findings)
