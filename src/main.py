@@ -63,9 +63,12 @@ def main():
             logger.info("No anomalies detected — sending clean-run notification.")
             alert.send_clean_run()
         else:
-            # Send top 50 AML + top 50 glitch as individual emails
-            for finding in aml_findings[:50] + glitch_findings[:50]:
+            # Send top 25 AML + top 25 glitch as individual emails
+            # with a small delay to avoid Gmail rate limiting
+            import time
+            for finding in aml_findings[:25] + glitch_findings[:25]:
                 alert.send_finding(finding)
+                time.sleep(1)
 
             # Send summary with top 50 of each + report download link
             alert.send_run_summary(
