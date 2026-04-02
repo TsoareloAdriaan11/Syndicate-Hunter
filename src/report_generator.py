@@ -32,7 +32,10 @@ def generate_report(aml_findings: list, glitch_findings: list,
     """
     total_aml     = len(aml_findings)
     total_glitch  = len(glitch_findings)
-    total         = total_aml + total_glitch
+    
+    # FIXED: Renamed to prevent the loop from overwriting this value
+    total_findings_count = total_aml + total_glitch 
+    
     aml_exposure  = sum(f.get("total_laundered_zar", f.get("total_structured_amount", 0)) for f in aml_findings)
     glitch_refunds = sum(f.get("overcharged_zar", 0) for f in glitch_findings)
 
@@ -91,7 +94,7 @@ def generate_report(aml_findings: list, glitch_findings: list,
         orig     = f.get("original_txn_id", "")
         dup      = f.get("duplicate_txn_id", "")
         amount   = f.get("overcharged_zar", 0)
-        total    = f.get("total_debited_zar", 0)
+        txn_total = f.get("total_debited_zar", 0) # FIXED: Changed from 'total'
         gap      = f.get("seconds_between_charges", 0)
         severity = f.get("severity", "HIGH")
 
@@ -144,7 +147,7 @@ def generate_report(aml_findings: list, glitch_findings: list,
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ font-family: Arial, sans-serif; background: #f7fafc; color: #1a202c; }}
-  .header {{ background: #1a202c; color: #fff; padding: 32px 40px; }}
+  .header {{ background: #1a202c; color: #fff; padding: 32px 40px; position: relative; }}
   .header h1 {{ font-size: 28px; margin-bottom: 6px; }}
   .header p {{ color: #a0aec0; font-size: 14px; }}
   .stats {{ display: flex; gap: 16px; padding: 24px 40px; background: #fff; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }}
@@ -158,24 +161,40 @@ def generate_report(aml_findings: list, glitch_findings: list,
   th {{ background: #2b6cb0; color: #fff; padding: 12px 10px; text-align: left; font-size: 12px; font-weight: bold; white-space: nowrap; }}
   tr:hover {{ background: #f7fafc; }}
   .footer {{ background: #1a202c; color: #718096; padding: 20px 40px; font-size: 12px; text-align: center; }}
+  
+  /* NEW: Save as PDF Button Styling */
+  .btn-print {{ position: absolute; right: 40px; top: 32px; background: #3182ce; color: #fff; padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; text-decoration: none; }}
+  .btn-print:hover {{ background: #2b6cb0; }}
+  
+  /* NEW: PDF Print Formatting rules */
+  @media print {{
+    .btn-print {{ display: none !important; }}
+    body {{ background: #fff; }}
+    .stats {{ border: none; padding: 10px 0; }}
+    .section {{ padding: 10px 0; page-break-inside: avoid; }}
+    table {{ box-shadow: none; border: 1px solid #e2e8f0; }}
+    th {{ color: #000; background: #edf2f7; border-bottom: 2px solid #cbd5e0; }}
+    td a {{ color: #2b6cb0 !important; text-decoration: underline !important; background: transparent !important; padding: 0 !important; }}
+    @page {{ margin: 1cm; }}
+  }}
 </style>
 </head>
 <body>
 
 <div class="header">
+  <button class="btn-print" onclick="window.print()">📥 Save as PDF</button>
   <h1>🏦 Financial Risk Engine — Full Anomaly Report</h1>
   <p>Generated: {_now()} &nbsp;|&nbsp; Run ID: {run_id} &nbsp;|&nbsp; Neo4j AuraDB + GitHub Actions</p>
 </div>
 
 <div class="stats">
-  <div class="stat"><div class="value">{total}</div><div class="label">Total Findings</div></div>
+  <div class="stat"><div class="value">{total_findings_count}</div><div class="label">Total Findings</div></div>
   <div class="stat"><div class="value">{total_aml}</div><div class="label">AML Findings</div></div>
   <div class="stat"><div class="value">{total_glitch}</div><div class="label">Glitch Duplicates</div></div>
   <div class="stat" style="border-top-color:#e53e3e"><div class="value" style="color:#e53e3e">R{aml_exposure:,.0f}</div><div class="label">AML Exposure</div></div>
   <div class="stat" style="border-top-color:#dd6b20"><div class="value" style="color:#dd6b20">R{glitch_refunds:,.0f}</div><div class="label">Refunds Due</div></div>
 </div>
 
-<!-- ── AML SECTION ── -->
 <div class="section">
   <h2>🚨 AML Findings — All {total_aml} Anomalies</h2>
   <p class="subtitle">Smurfing rings and structuring patterns. Click "View in Neo4j" to open the graph for that specific ring.</p>
@@ -199,7 +218,6 @@ def generate_report(aml_findings: list, glitch_findings: list,
   </table>
 </div>
 
-<!-- ── GLITCH IMPACT SUMMARY ── -->
 <div class="section">
   <h2>📊 Glitch Impact Summary by Merchant</h2>
   <p class="subtitle">Total financial exposure per merchant from duplicate charges.</p>
@@ -220,7 +238,6 @@ def generate_report(aml_findings: list, glitch_findings: list,
   </table>
 </div>
 
-<!-- ── GLITCH SECTION ── -->
 <div class="section">
   <h2>⚡ Payment Glitch Findings — All {total_glitch} Duplicate Charges</h2>
   <p class="subtitle">FNB virtual card duplicate charges on Takealot. Click "View in Neo4j" to inspect the account's transaction graph.</p>
