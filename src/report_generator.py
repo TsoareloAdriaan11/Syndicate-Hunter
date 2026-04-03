@@ -61,7 +61,11 @@ def generate_report(aml_findings: list, glitch_findings: list,
                      "MEDIUM": "#d69e2e", "LOW": "#38a169"}.get(severity, "#718096")
 
         if ftype == "AML_SMURFING_RING":
-            cypher = f"MATCH path = (a:Account)-[:SENT]->(t:Transaction {{aml_ring: '{ring_id}'}})-[:TO]->(b:Account) RETURN path LIMIT 100"
+            # Formats the Python list into a Cypher-friendly array: ['TXN-1', 'TXN-2']
+            formatted_txns = "[" + ", ".join(f"'{tid}'" for tid in txn_ids) + "]"
+            
+            # Asks Neo4j to draw the exact path of the transactions the algorithm caught
+            cypher = f"MATCH path = (a:Account)-[:SENT]->(t:Transaction)-[:TO]->(b:Account) WHERE t.txn_id IN {formatted_txns} RETURN path"
             type_label = "Smurfing Ring"
         else:
             cypher = f"MATCH path = (a:Account {{account_id: '{acct}'}})-[:SENT]->(t:Transaction) WHERE t.amount >= 1000 AND t.amount < 5000 RETURN path LIMIT 50"
