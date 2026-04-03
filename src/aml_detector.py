@@ -17,19 +17,13 @@ MATCH path = (start_acc:Account)-[:SENT]->(t1:Transaction)-[:TO]->(next_acc:Acco
 MATCH p2 = (next_acc)-[:SENT|TO*2..10]->(start_acc)
 WHERE t1.amount >= 1000 
   AND start_acc <> next_acc // Prevent immediate bounce-backs
-WITH start_acc, path, p2, nodes(p2) AS path_nodes
+WITH start_acc, path, p2, nodes(p2) AS path_nodes, t1
 RETURN 
     start_acc.account_id AS ring_account,
     start_acc.account_id AS customer_id, 
     "Syndicate Target" AS customer_name,
     length(p2)/2 + 1 AS hops,
-    reduce(total = 0, n IN path_nodes | 
-        CASE WHEN 'Transaction' IN labels(n) THEN total + n.amount ELSE total END
-    ) + t1.amount AS total_laundered_zar,
-    [n IN path_nodes WHERE 'Transaction' IN labels(n) | n.txn_id] AS txn_ids
-ORDER BY total_laundered_zar DESC
-LIMIT 25
-"""
+    reduce(total = 0,
 
 STRUCTURING_QUERY = """
 MATCH (a:Account)-[:SENT]->(t:Transaction)
