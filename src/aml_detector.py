@@ -23,7 +23,12 @@ RETURN
     start_acc.account_id AS customer_id, 
     "Syndicate Target" AS customer_name,
     length(p2)/2 + 1 AS hops,
-    reduce(total = 0,
+    reduce(total = 0, n IN path_nodes | 
+        CASE WHEN 'Transaction' IN labels(n) THEN total + n.amount ELSE total END
+    ) + t1.amount AS total_laundered_zar,
+    [t1.txn_id] + [n IN path_nodes WHERE 'Transaction' IN labels(n) | n.txn_id] AS txn_ids
+ORDER BY total_laundered_zar DESC
+LIMIT 25
 """
 
 STRUCTURING_QUERY = """
