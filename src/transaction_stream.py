@@ -309,20 +309,24 @@ def run_stream():
     start_time = time.time()
 
     with Neo4jConnection() as conn:
-        # ── 1. AGGRESSIVE CLEANUP ─────────────────────────────────────────
-        logger.info("🧹 Wiping previous database nodes to prevent AuraDB 200k limit crash...")
-        try:
-            # Neo4j 4.4+ Batch Deletion (Prevents Out of Memory errors on large DBs)
-            conn.query("MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS")
-        except Exception as e:
-            logger.warning("Batch delete failed, attempting standard delete... (%s)", e)
-            conn.query("MATCH (n) DETACH DELETE n")
+        
+        # ── 1. CONDITIONAL CLEANUP ─────────────────────────────────────────
+        # Only purges data if we are getting close to the 200k limit.
+        # This prevents your anomalies from being deleted before you investigate them!
+        node_count = conn.query("MATCH (n) RETURN count(n) AS total")[0]["total"]
+        if node_count > 150000:
+            logger.info("🧹 Node limit approaching (%d nodes). Wiping database...", node_count)
+            try:
+                conn.query("MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS")
+            except Exception as e:
+                logger.warning("Batch delete failed, attempting standard delete... (%s)", e)
+                conn.query("MATCH (n) DETACH DELETE n")
+        else:
+            logger.info("✅ Database has %d nodes. Safe to continue without wiping.", node_count)
         
         # ── 2. REBUILD SCHEMA ─────────────────────────────────────────────
         ensure_schema(conn)
-
-        logger.info("✅ Connected to Neo4j AuraDB. Stream is live.\n")
-
+      
         while _running:
             elapsed = time.time() - start_time
             if elapsed >= MAX_RUNTIME_SECONDS:
