@@ -9,10 +9,18 @@
 name: Financial Risk Engine
 
 on:
-  schedule:
-    - cron: "0 */6 * * *"
+  # 1. THE CHAIN: Runs automatically the exact moment the Live Stream finishes (Perfect for your 120s test!)
+  workflow_run:
+    workflows: ["Live Transaction Stream"]
+    types:
+      - completed
+
+  # 2. THE OVERRIDE: Allows you to manually click "Run workflow" whenever you want
   workflow_dispatch:
 
+  # 3. THE AUTOPILOT: Runs every hour independently to scan the live database
+  schedule:
+    - cron: "0 * * * *"
 jobs:
   run-risk-engine:
     name: Run Financial Risk Engine
