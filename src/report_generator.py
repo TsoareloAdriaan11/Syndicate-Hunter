@@ -48,31 +48,33 @@ def generate_report(aml_findings: list, glitch_findings: list,
     # ── AML rows ────────────────────────────────────────────────────────────
     aml_rows_html = ""
     for i, f in enumerate(aml_findings, 1):
-        ring_id   = f.get("ring_id", "")
-        acct      = f.get("ring_account", "")
-        name      = f.get("customer_name", f.get("account_id", "Unknown"))
-        hops      = f.get("hops", len(f.get("txn_ids", [])))
-        amount    = f.get("total_laundered_zar", f.get("total_structured_amount", 0))
-        severity  = f.get("severity", "MEDIUM")
-        txn_ids   = f.get("txn_ids", [])
         ftype     = f.get("type", "")
+        severity  = f.get("severity", "MEDIUM")
+        name      = f.get("customer_name", f.get("account_id", "Unknown"))
+        amount    = f.get("total_laundered_zar", f.get("total_structured_amount", 0))
+        txn_ids   = f.get("txn_ids", [])
 
         sev_color = {"CRITICAL": "#e53e3e", "HIGH": "#dd6b20",
                      "MEDIUM": "#d69e2e", "LOW": "#38a169"}.get(severity, "#718096")
 
         if ftype == "AML_SMURFING_RING":
-            # Formats the Python list into a Cypher-friendly array: ['TXN-1', 'TXN-2']
-            formatted_txns = "[" + ", ".join(f"'{tid}'" for tid in txn_ids) + "]"
-            
-            # Asks Neo4j to draw the exact path of the transactions the algorithm caught
-            cypher = f"MATCH path = (a:Account)-[:SENT]->(t:Transaction)-[:TO]->(b:Account) WHERE t.txn_id IN {formatted_txns} RETURN path"
+            ring_id    = f.get("ring_id", "")
+            hops_label = str(f.get("hops", len(txn_ids)))
+            id_label   = ring_id
             type_label = "Smurfing Ring"
+            # Query by txn_id list — most reliable
+            ids_str    = ", ".join(f"'{t}'" for t in txn_ids)
+            cypher     = f"MATCH path = (a:Account)-[:SENT]->(t:Transaction)-[:TO]->(b:Account) WHERE t.txn_id IN [{ids_str}] RETURN path"
         else:
-            cypher = f"MATCH path = (a:Account {{account_id: '{acct}'}})-[:SENT]->(t:Transaction) WHERE t.amount >= 1000 AND t.amount < 5000 RETURN path LIMIT 50"
+            # Structuring
+            acct       = f.get("account_id", "")
+            txn_count  = f.get("suspicious_txn_count", len(txn_ids))
+            hops_label = str(txn_count) + " txns"
+            id_label   = acct
             type_label = "Structuring"
+            cypher     = f"MATCH path = (a:Account {{account_id: '{acct}'}})-[:SENT]->(t:Transaction) WHERE t.amount >= 1000 AND t.amount < 5000 RETURN path LIMIT 50"
 
         neo4j_url = _neo4j_link(cypher)
-        safe_cypher = html.escape(cypher)
         txn_list  = "<br>".join(txn_ids[:5]) + ("..." if len(txn_ids) > 5 else "")
 
         aml_rows_html += f"""
@@ -80,17 +82,17 @@ def generate_report(aml_findings: list, glitch_findings: list,
             <td style="padding:10px;border-bottom:1px solid #e2e8f0;color:#718096;font-size:12px">{i}</td>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0"><strong>{name}</strong></td>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0;font-size:12px;color:#4a5568">{type_label}</td>
-            <td style="padding:10px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:11px;color:#2b6cb0">{ring_id or acct}</td>
-            <td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">{hops}</td>
+            <td style="padding:10px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:11px;color:#2b6cb0">{id_label}</td>
+            <td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">{hops_label}</td>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0;font-weight:bold">R{amount:,.2f}</td>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0">
                 <span style="background:{sev_color};color:#fff;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:bold">{severity}</span>
             </td>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0;font-family:monospace;font-size:10px;color:#718096">{txn_list}</td>
             <td style="padding:10px;border-bottom:1px solid #e2e8f0">
-                <a href="{neo4j_url}" data-cypher="{safe_cypher}" onclick="copyAndOpen(event, this)" target="_blank"
-                   style="background:#2b6cb0;color:#fff;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:11px;white-space:nowrap;display:inline-block">
-                   📋 Auto-Copy & View
+                <a href="{neo4j_url}" target="_blank"
+                   style="background:#2b6cb0;color:#fff;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:11px;white-space:nowrap">
+                   🔍 View in Neo4j
                 </a>
             </td>
         </tr>"""
