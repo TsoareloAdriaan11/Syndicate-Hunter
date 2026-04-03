@@ -24,6 +24,7 @@ RETURN
     "Syndicate Target" AS customer_name,
     length(p2)/2 + 1 AS hops,
     reduce(total = 0,
+"""
 
 STRUCTURING_QUERY = """
 MATCH (a:Account)-[:SENT]->(t:Transaction)
