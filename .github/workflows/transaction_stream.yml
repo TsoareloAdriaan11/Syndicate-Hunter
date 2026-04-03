@@ -1,406 +1,53 @@
-"""
-transaction_stream.py
-Continuous Live Transaction Stream — Financial Risk Engine
+# .github/workflows/transaction_stream.yml
+name: Live Transaction Stream
 
-This orchestrator runs as a persistent loop, autonomously generating synthetic 
-transactions and injecting them into a live Neo4j Graph Database. It acts as 
-the "heartbeat" of the project, simulating a real-world South African payment network.
+on:
+  schedule:
+    - cron: "0 */6 * * *"    # Every 6 hours — 00:00, 06:00, 12:00, 18:00 UTC
+  workflow_dispatch:
+    inputs:
+      test_runtime:
+        description: 'Test Runtime in Seconds (Leave as 21000 for full 6h run)'
+        required: true
+        default: '21000'
 
-Data Composition (per cycle):
-  ─ 70% → Normal everyday organic payments (groceries, e-commerce, fuel).
-  ─ 15% → AML Smurfing Rings (closed-loop multi-hop money laundering).
-  ─ 15% → Payment Gateway Glitches (duplicate virtual card charges).
+# Prevent two stream jobs running simultaneously
+concurrency:
+  group: live-transaction-stream
+  cancel-in-progress: false    
 
-Infrastructure Management:
-  - Designed to run safely on AWS / Neo4j AuraDB Free Tier.
-  - Automatically executes a batch-deletion purge on startup to prevent
-    exceeding the 200,000 node limit.
-"""
+jobs:
+  stream:
+    name: Continuous Transaction Stream
+    runs-on: ubuntu-latest
+    timeout-minutes: 360       
 
-import os
-import sys
-import time
-import random
-import signal
-import logging
-from datetime import datetime
-from faker import Faker
-from dotenv import load_dotenv
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-# Load environment variables from .env file or GitHub Secrets
-load_dotenv()
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
 
-from db_connection  import Neo4jConnection
-from data_generator import (
-    ensure_schema,
-    _create_customer,
-    _create_account,
-    _create_merchant,
-    _ts,
-)
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Application Logging Setup
-# ─────────────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logger = logging.getLogger("risk_engine.stream")
-
-# South African locale for realistic synthetic identities
-fake = Faker()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stream Configuration & Tuning Parameters
-# ─────────────────────────────────────────────────────────────────────────────
-
-# Rest period between transaction bursts (simulates real-world traffic lulls)
-STREAM_INTERVAL_SECONDS = int(os.environ.get("STREAM_INTERVAL_SECONDS", "15"))
-
-# Baseline organic transactions to generate per cycle
-NORMAL_TXN_PER_CYCLE = int(os.environ.get("NORMAL_TXN_PER_CYCLE", "5"))
-
-# The hard timeout to prevent endless looping (Default: 5h 50m for GitHub Actions)
-MAX_RUNTIME_SECONDS = int(os.environ.get("MAX_RUNTIME_SECONDS", str(5 * 3600 + 50 * 60)))
-
-# Statistical probability thresholds for injecting anomalies
-AML_INJECT_PROBABILITY = float(os.environ.get("AML_INJECT_PROBABILITY", "0.15"))
-GLITCH_INJECT_PROBABILITY = float(os.environ.get("GLITCH_INJECT_PROBABILITY", "0.15"))
-
-# Realistic South African corporate entities to act as transaction sinks
-ZA_MERCHANTS = [
-    "Checkers", "Pick n Pay", "Woolworths Food", "Spar",
-    "Takealot", "Makro", "Game", "Incredible Connection",
-    "Engen", "Shell", "BP", "TotalEnergies",
-    "Netflix", "Showmax", "DStv",
-    "Uber Eats", "Mr D Food",
-    "Discovery Health", "Momentum",
-]
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Graceful Shutdown Handlers
-# Prevents database corruption if the stream is forcefully killed by the OS
-# ─────────────────────────────────────────────────────────────────────────────
-
-_running = True
-
-def _handle_sigterm(sig, frame):
-    """Intercepts kill signals and instructs the main loop to exit cleanly."""
-    global _running
-    logger.info("🛑 SIGTERM received — finishing current cycle then shutting down.")
-    _running = False
-
-signal.signal(signal.SIGTERM, _handle_sigterm)
-signal.signal(signal.SIGINT,  _handle_sigterm)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Transaction Emitters
-# ─────────────────────────────────────────────────────────────────────────────
-
-def emit_normal_transactions(conn: Neo4jConnection, count: int) -> int:
-    """
-    Simulates standard, organic financial traffic.
-    
-    Graph Strategy: To prevent the graph from becoming millions of disconnected 
-    islands, this function artificially reuses existing accounts 80% of the time. 
-    This forces the graph to become dense and highly connected, which is critical 
-    for testing graph algorithms later.
-    """
-    emitted = 0
-
-    # Fetch a pool of up to 50 existing accounts from the database
-    existing = conn.query("MATCH (a:Account) RETURN a.account_id AS aid LIMIT 50")
-    existing_ids = [r["aid"] for r in existing]
-
-    for _ in range(count):
-        # 80% chance to reuse an account to build realistic graph density
-        if existing_ids and random.random() < 0.80:
-            acc_id = random.choice(existing_ids)
-        else:
-            # 20% chance to onboard a completely new customer
-            c      = _create_customer(conn)
-            a      = _create_account(conn, c["customer_id"],
-                        account_type=random.choice(["cheque", "savings", "virtual"]))
-            acc_id = a["account_id"]
-            existing_ids.append(acc_id)
-
-        # Generate realistic transaction parameters
-        merchant_name = random.choice(ZA_MERCHANTS)
-        m       = _create_merchant(conn, name=merchant_name)
-        amount  = round(random.uniform(20, 8_000), 2)
-        channel = random.choice(["online", "pos", "mobile", "virtual_card", "tap_to_pay"])
-
-        # Execute the write to the database
-        conn.query(
-            """
-            MATCH (a:Account {account_id: $acc_id})
-            MATCH (m:Merchant {merchant_id: $merch_id})
-            CREATE (t:Transaction {txn_id: $txn_id})
-            SET t.amount      = $amount,
-                t.currency    = 'ZAR',
-                t.timestamp   = $ts,
-                t.txn_type    = 'purchase',
-                t.status      = 'completed',
-                t.channel     = $channel,
-                t.aml_ring    = null,
-                t.glitch_flag = false
-            CREATE (a)-[:SENT]->(t)-[:TO]->(m)
-            """,
-            {
-                "acc_id":   acc_id,
-                "merch_id": m["merchant_id"],
-                "txn_id":   f"TXN-NORM-{fake.uuid4()[:10].upper()}",
-                "amount":   amount,
-                "ts":       _ts(datetime.now()),
-                "channel":  channel,
-            },
-        )
-        emitted += 1
-
-    return emitted
-
-
-def emit_aml_burst(conn: Neo4jConnection) -> int:
-    """
-    Injects a synthetic Anti-Money Laundering (AML) 'Smurfing' ring.
-    
-    Topology: Generates a closed-loop circular money flow. 
-    Funds move from Account A -> B -> C -> back to A across multiple hops 
-    to obscure the origin of the funds, mimicking real-world laundering evasion.
-    """
-    ring_size = random.randint(3, 5) # How many accounts in the syndicate
-    hops      = random.randint(2, 4) # How many times the money circles the ring
-    ring_id   = f"LIVE-RING-{fake.uuid4()[:6].upper()}"
-
-    # Provision the malicious actors
-    customers = []
-    accounts  = []
-    for i in range(ring_size):
-        c = _create_customer(conn, suffix=f"-{ring_id}-{i}")
-        a = _create_account(conn, c["customer_id"], account_type="cheque")
-        customers.append(c)
-        accounts.append(a)
-
-    base_time = _ts(datetime.now())
-    txn_count = 0
-
-    # Execute the structured money movement
-    for hop in range(hops):
-        for idx in range(ring_size):
-            sender_acc   = accounts[idx]
-            # Route to the next account in the array, looping back to the start
-            receiver_acc = accounts[(idx + 1) % ring_size] 
-            amount       = round(random.uniform(1_000, 4_999), 2) # Keep under R5k reporting threshold
-            ts           = base_time + (hop * 300) + (idx * 20)
-
-            conn.query(
-                """
-                MATCH (a:Account {account_id: $from_id})
-                MATCH (b:Account {account_id: $to_id})
-                CREATE (t:Transaction {txn_id: $txn_id})
-                SET t.amount    = $amount,
-                    t.currency  = 'ZAR',
-                    t.timestamp = $ts,
-                    t.txn_type  = 'smurf_transfer',
-                    t.status    = 'completed',
-                    t.channel   = 'online',
-                    t.aml_ring  = $ring_id,
-                    t.glitch_flag = false
-                CREATE (a)-[:SENT]->(t)-[:TO]->(b)
-                """,
-                {
-                    "from_id": sender_acc["account_id"],
-                    "to_id":   receiver_acc["account_id"],
-                    "txn_id":  f"AML-LIVE-{fake.uuid4()[:8].upper()}-H{hop}I{idx}",
-                    "amount":  amount,
-                    "ts":      ts,
-                    "ring_id": ring_id,
-                },
-            )
-            txn_count += 1
-
-    logger.warning(
-        "💉 AML burst injected | %s | %d participants | %d hops | %d txns",
-        ring_id, ring_size, hops, txn_count,
-    )
-    return txn_count
-
-
-def emit_glitch_burst(conn: Neo4jConnection) -> int:
-    """
-    Injects a synthetic IT system failure (Payment Gateway Glitch).
-    
-    Replicates the documented FNB/Takealot virtual card error where a single
-    consumer action resulted in two identical charges milliseconds apart.
-    """
-    c = _create_customer(conn, suffix=f"-GLIVE-{fake.uuid4()[:4].upper()}")
-    a = _create_account(conn, c["customer_id"], account_type="virtual")
-
-    # Always route these specific glitches to Takealot
-    takealot_results = conn.query(
-        "MATCH (m:Merchant {name: 'Takealot'}) RETURN m.merchant_id AS mid LIMIT 1"
-    )
-    if takealot_results:
-        merch_id = takealot_results[0]["mid"]
-    else:
-        m        = _create_merchant(conn, name="Takealot")
-        merch_id = m["merchant_id"]
-
-    amount    = round(random.uniform(150, 3_500), 2)
-    base_time = _ts(datetime.now())
-    dup_time  = base_time + random.randint(5, 45) # The duplicate fires 5-45 seconds later
-
-    # Create both the original legitimate charge, and the erroneous duplicate
-    for txn_id, ts, is_dup in [
-        (f"TXN-ORIG-LIVE-{fake.uuid4()[:8].upper()}", base_time, False),
-        (f"TXN-DUP-LIVE-{fake.uuid4()[:8].upper()}",  dup_time,  True),
-    ]:
-        conn.query(
-            """
-            MATCH (a:Account {account_id: $acc_id})
-            MATCH (m:Merchant {merchant_id: $merch_id})
-            CREATE (t:Transaction {txn_id: $txn_id})
-            SET t.amount      = $amount,
-                t.currency    = 'ZAR',
-                t.timestamp   = $ts,
-                t.txn_type    = 'virtual_card_purchase',
-                t.status      = 'completed',
-                t.channel     = 'virtual_card',
-                t.glitch_flag = $is_dup,
-                t.aml_ring    = null
-            CREATE (a)-[:SENT]->(t)-[:TO]->(m)
-            """,
-            {
-                "acc_id":   a["account_id"],
-                "merch_id": merch_id,
-                "txn_id":   txn_id,
-                "amount":   amount,
-                "ts":       ts,
-                "is_dup":   is_dup,
-            },
-        )
-
-    logger.warning(
-        "💉 Glitch burst injected | %s | R%.2f x2 | %ds gap",
-        a["account_id"], amount, dup_time - base_time,
-    )
-    return 2
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Stream Metrics Tracker
-# ─────────────────────────────────────────────────────────────────────────────
-
-class StreamStats:
-    """Tracks and logs execution metrics during long-running stream sessions."""
-    def __init__(self):
-        self.cycles        = 0
-        self.normal_txns   = 0
-        self.aml_bursts    = 0
-        self.glitch_bursts = 0
-        self.start_time    = time.time()
-
-    def elapsed(self) -> str:
-        secs = int(time.time() - self.start_time)
-        return f"{secs // 3600:02d}h {(secs % 3600) // 60:02d}m {secs % 60:02d}s"
-
-    def log(self):
-        logger.info(
-            "📊 Stream stats | Elapsed: %s | Cycles: %d | Normal txns: %d | "
-            "AML bursts: %d | Glitch bursts: %d",
-            self.elapsed(), self.cycles,
-            self.normal_txns, self.aml_bursts, self.glitch_bursts,
-        )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Main Execution Loop
-# ─────────────────────────────────────────────────────────────────────────────
-
-def run_stream():
-    """
-    Bootstraps the database, handles safety cleanup, and begins the infinite 
-    transaction generation loop.
-    """
-    logger.info("=" * 70)
-    logger.info("🌊 LIVE TRANSACTION STREAM — Starting")
-    logger.info("   Interval : %ds per cycle", STREAM_INTERVAL_SECONDS)
-    logger.info("   Normal txns/cycle : %d", NORMAL_TXN_PER_CYCLE)
-    logger.info("   AML inject prob   : %.0f%%", AML_INJECT_PROBABILITY * 100)
-    logger.info("   Glitch inject prob: %.0f%%", GLITCH_INJECT_PROBABILITY * 100)
-    logger.info("   Max runtime       : %ds", MAX_RUNTIME_SECONDS)
-    logger.info("=" * 70)
-
-    stats      = StreamStats()
-    start_time = time.time()
-
-    with Neo4jConnection() as conn:
-        
-        # ── 1. PRE-FLIGHT CLEANUP ─────────────────────────────────────────
-        # Automatically purges historical data to prevent hitting the 200,000 node
-        # hard limit on Neo4j AuraDB Free Tier. Uses chunking to avoid OOM crashes.
-        logger.info("🧹 Wiping previous database nodes to prevent AuraDB 200k limit crash...")
-        try:
-            # Call {} In Transactions allows for safe, batched memory deletion in Neo4j 4.4+
-            conn.query("MATCH (n) CALL { WITH n DETACH DELETE n } IN TRANSACTIONS OF 10000 ROWS")
-        except Exception as e:
-            logger.warning("Batch delete failed, attempting standard fallback delete... (%s)", e)
-            conn.query("MATCH (n) DETACH DELETE n")
-        
-        # ── 2. SCHEMA VERIFICATION ─────────────────────────────────────────
-        # Ensures necessary constraints and indexes exist before writing data
-        ensure_schema(conn)
-
-        logger.info("✅ Connected to Neo4j AuraDB. Stream is live.\n")
-
-        # ── 3. INFINITE GENERATION LOOP ────────────────────────────────────
-        while _running:
-            elapsed = time.time() - start_time
-            
-            # Terminate gracefully if the maximum allowed runtime is exceeded
-            if elapsed >= MAX_RUNTIME_SECONDS:
-                logger.info("⏱️  Max runtime reached (%.0fs). Shutting down cleanly.", elapsed)
-                break
-
-            cycle_start = time.time()
-            stats.cycles += 1
-            logger.info("─── Cycle #%d | %s ───", stats.cycles, _now())
-
-            # Always inject standard organic traffic
-            n = emit_normal_transactions(conn, NORMAL_TXN_PER_CYCLE)
-            stats.normal_txns += n
-            logger.info("  ✅ %d normal transaction(s) written", n)
-
-            # Roll the dice: Periodically inject an AML Syndicate
-            if random.random() < AML_INJECT_PROBABILITY:
-                emit_aml_burst(conn)
-                stats.aml_bursts += 1
-
-            # Roll the dice: Periodically inject a Payment Gateway Glitch
-            if random.random() < GLITCH_INJECT_PROBABILITY:
-                emit_glitch_burst(conn)
-                stats.glitch_bursts += 1
-
-            # Print a status heartbeat every 10 cycles
-            if stats.cycles % 10 == 0:
-                stats.log()
-
-            # Dynamically calculate sleep time to ensure consistent interval pacing
-            cycle_duration = time.time() - cycle_start
-            sleep_for      = max(0, STREAM_INTERVAL_SECONDS - cycle_duration)
-            logger.info("  💤 Sleeping %.1fs until next cycle...\n", sleep_for)
-            time.sleep(sleep_for)
-
-    stats.log()
-    logger.info("🏁 Transaction stream stopped.")
-
-def _now() -> str:
-    """Helper to return current SAST timestamp as a string."""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-if __name__ == "__main__":
-    run_stream()
+      - name: Start live transaction stream
+        env:
+          NEO4J_URI:                ${{ secrets.NEO4J_URI }}
+          NEO4J_USERNAME:           ${{ secrets.NEO4J_USERNAME }}
+          NEO4J_PASSWORD:           ${{ secrets.NEO4J_PASSWORD }}
+          STREAM_INTERVAL_SECONDS:  "15"
+          NORMAL_TXN_PER_CYCLE:     "2"
+          AML_INJECT_PROBABILITY:   "0.15"
+          GLITCH_INJECT_PROBABILITY: "0.15"
+          # Uses manual input if triggered manually, otherwise defaults to 21000 (5h 50m)
+          MAX_RUNTIME_SECONDS:      ${{ github.event.inputs.test_runtime || '21000' }}
+        run: |
+          cd src
+          python transaction_stream.py
