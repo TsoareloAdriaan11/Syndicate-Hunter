@@ -366,15 +366,3 @@ def _now() -> str:
 
 if __name__ == "__main__":
   run_stream()
-
-"""
-That's it — just those 5 lines missing at the bottom. Commit and run the **Live Transaction Stream** workflow again. You should immediately see:
-
-Connected to Neo4j AuraDB
-Stream is live.
-Cycle #1 | 2026-03-25 ...
-2 normal transaction(s) written
-AML burst injected | LIVE-RING-...
-Glitch burst injected | ...
-Sleeping 14.xs until next cycle...
-"""
