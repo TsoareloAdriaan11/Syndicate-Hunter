@@ -62,11 +62,16 @@ def generate_report(aml_findings: list, glitch_findings: list,
             hops_label = str(f.get("hops", len(txn_ids)))
             id_label   = ring_id
             type_label = "Smurfing Ring"
-            # Query by ring_id — shows only THIS ring's customers by name
+            # Returns only Customer nodes with SENT_TO virtual relationships
+            # Account and Transaction details appear as properties when clicking a node
             cypher = (
-                f"MATCH (c1:Customer)-[:OWNS]->(a:Account)-[:SENT]->(t:Transaction "
-                f"{{aml_ring: '{ring_id}'}})-[:TO]->(b:Account)<-[:OWNS]-(c2:Customer) "
-                f"RETURN c1, a, t, b, c2"
+                f"MATCH (c1:Customer)-[:OWNS]->(a:Account)-[:SENT]->(t:Transaction"
+                f" {{aml_ring: '{ring_id}'}})-[:TO]->(b:Account)<-[:OWNS]-(c2:Customer)"
+                f" WITH c1, c2, sum(t.amount) AS transferred, collect(t.txn_id) AS txns,"
+                f" collect(a.account_id) AS from_accts"
+                f" MERGE (c1)-[r:TRANSFERRED_TO {{ring: '{ring_id}'}}]->(c2)"
+                f" SET r.amount = transferred, r.txn_ids = txns, r.from_accounts = from_accts"
+                f" RETURN c1, r, c2"
             )
             
         else:
@@ -219,7 +224,7 @@ def generate_report(aml_findings: list, glitch_findings: list,
         <th>Customer</th>
         <th>Type</th>
         <th>Ring / Account ID</th>
-        <th>Accounts</th>
+        <th>Ring Size / Txns</th>
         <th>Amount</th>
         <th>Severity</th>
         <th>Transaction IDs</th>
