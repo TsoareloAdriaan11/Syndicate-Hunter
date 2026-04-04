@@ -90,20 +90,40 @@ def _create_account(conn: Neo4jConnection, customer_id: str,
 
 
 def _create_merchant(conn: Neo4jConnection, name: str = None) -> dict:
-    merchant = {
-        "merchant_id":   f"MERCH-{fake.uuid4()[:6].upper()}",
-        "name":          name or fake.company(),
-        "category":      random.choice(["Retail", "E-Commerce", "Grocery", "Electronics"]),
-        "merchant_code": fake.numerify("MCC-####"),
-    }
-    conn.query(
-        """
-        MERGE (m:Merchant {merchant_id: $merchant_id})
-        SET m += $props
-        """,
-        {"merchant_id": merchant["merchant_id"], "props": merchant},
-    )
-    return merchant
+    merchant_name = name or fake.company()
+    merchant_id   = f"MERCH-{fake.uuid4()[:6].upper()}"
+
+    if name:
+        # Named merchants (e.g. Takealot) must always be a single node — MERGE on name
+        result = conn.query(
+            """
+            MERGE (m:Merchant {name: $name})
+            ON CREATE SET m.merchant_id   = $merchant_id,
+                          m.category      = $category,
+                          m.merchant_code = $merchant_code
+            RETURN m.merchant_id AS mid
+            """,
+            {
+                "name":          merchant_name,
+                "merchant_id":   merchant_id,
+                "category":      random.choice(["Retail", "E-Commerce", "Grocery", "Electronics"]),
+                "merchant_code": fake.numerify("MCC-####"),
+            },
+        )
+        return {"merchant_id": result[0]["mid"], "name": merchant_name}
+    else:
+        # Random merchants get a unique ID each time
+        merchant = {
+            "merchant_id":   merchant_id,
+            "name":          merchant_name,
+            "category":      random.choice(["Retail", "E-Commerce", "Grocery", "Electronics"]),
+            "merchant_code": fake.numerify("MCC-####"),
+        }
+        conn.query(
+            "MERGE (m:Merchant {merchant_id: $merchant_id}) SET m += $props",
+            {"merchant_id": merchant["merchant_id"], "props": merchant},
+        )
+        return merchant
 
 
 def _create_transaction(conn: Neo4jConnection, from_account_id: str,
