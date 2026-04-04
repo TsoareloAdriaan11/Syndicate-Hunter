@@ -327,14 +327,42 @@ def run_stream():
         # ── 2. REBUILD SCHEMA ─────────────────────────────────────────────
         ensure_schema(conn)
       
-        # ── GUARANTEE: Always inject at least 3 glitch bursts and 2 AML rings on startup
-        # This ensures the risk engine always has anomalies to detect even on short test runs
+        # ── 3. DEDUPLICATE TAKEALOT — merge all Takealot nodes into one ───────
+        # Old runs may have created multiple Takealot merchant nodes with different IDs.
+        # The glitch detector requires BOTH transactions point to the EXACT same node.
+        # This block finds the canonical Takealot node and re-points all orphan transactions to it.
+        logger.info("🔧 Deduplicating Takealot merchant nodes...")
+        takealot_nodes = conn.query(
+            "MATCH (m:Merchant {name: 'Takealot'}) RETURN m.merchant_id AS mid ORDER BY m.merchant_id LIMIT 100"
+        )
+        if len(takealot_nodes) > 1:
+            canonical_mid = takealot_nodes[0]["mid"]
+            for node in takealot_nodes[1:]:
+                orphan_mid = node["mid"]
+                conn.query(
+                    """
+                    MATCH (orphan:Merchant {merchant_id: $orphan_mid})
+                    MATCH (canonical:Merchant {merchant_id: $canonical_mid})
+                    MATCH (t:Transaction)-[r:TO]->(orphan)
+                    DELETE r
+                    CREATE (t)-[:TO]->(canonical)
+                    DELETE orphan
+                    """,
+                    {"orphan_mid": orphan_mid, "canonical_mid": canonical_mid}
+                )
+            logger.info("✅ Merged %d duplicate Takealot nodes into one.", len(takealot_nodes) - 1)
+        else:
+            logger.info("✅ Takealot merchant node is clean (1 node).")
+
+        # ── 4. GUARANTEE: Always seed anomalies so even a 120s test has detectable data ──
         logger.info("💉 Seeding guaranteed anomalies for detection baseline...")
-        for _ in range(3):
+        for _ in range(5):
             emit_glitch_burst(conn)
-        for _ in range(2):
+            logger.info("   ✅ Glitch burst seeded")
+        for _ in range(3):
             emit_aml_burst(conn)
-        logger.info("✅ Baseline anomalies seeded.")
+            logger.info("   ✅ AML ring seeded")
+        logger.info("✅ Baseline anomalies seeded (5 glitches + 3 AML rings guaranteed).")
 
         while _running:
             elapsed = time.time() - start_time
