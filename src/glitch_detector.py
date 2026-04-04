@@ -12,23 +12,24 @@ logger = logging.getLogger(__name__)
 # Forces the database to only look at subsequent transactions within the window
 # before doing the absolute math, preventing Cartesian Product slowdowns.
 DUPLICATE_CHARGE_QUERY = """
-MATCH (a:Account {account_type: 'virtual'})-[:SENT]->(t1:Transaction)-[:TO]->(m:Merchant)
+MATCH (a:Account {account_type: 'virtual'})-[:SENT]->(t1:Transaction)-[:TO]->(m1:Merchant)
 WHERE t1.channel = 'virtual_card'
-MATCH (a)-[:SENT]->(t2:Transaction)-[:TO]->(m)
-WHERE t1.txn_id < t2.txn_id 
+MATCH (a)-[:SENT]->(t2:Transaction)-[:TO]->(m2:Merchant)
+WHERE t1.txn_id < t2.txn_id
   AND t2.channel = 'virtual_card'
-  AND t2.timestamp >= t1.timestamp 
+  AND m1.name = m2.name
+  AND t2.timestamp >= t1.timestamp
   AND t2.timestamp <= t1.timestamp + $window_seconds
   AND abs(t1.amount - t2.amount) < 0.01
 MATCH (a)<-[:OWNS]-(c:Customer)
-RETURN 
-    c.customer_id AS customer_id,
-    c.full_name AS customer_name,
-    a.account_id AS account_id,
-    m.name AS merchant_name,
-    t1.txn_id AS original_txn_id,
-    t2.txn_id AS duplicate_txn_id,
-    t1.amount AS overcharged_zar,
+RETURN
+    c.customer_id          AS customer_id,
+    c.full_name            AS customer_name,
+    a.account_id           AS account_id,
+    m1.name                AS merchant_name,
+    t1.txn_id              AS original_txn_id,
+    t2.txn_id              AS duplicate_txn_id,
+    t1.amount              AS overcharged_zar,
     (t2.timestamp - t1.timestamp) AS seconds_between_charges
 ORDER BY t1.timestamp DESC
 """
