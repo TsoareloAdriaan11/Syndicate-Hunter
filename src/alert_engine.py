@@ -177,19 +177,36 @@ class AlertEngine:
         total_aml_amount    = sum(f.get("total_laundered_zar", f.get("total_structured_amount", 0)) for f in aml)
         total_glitch_amount = sum(f.get("overcharged_zar", 0) for f in glitch)
 
-        aml_rows = ""
+        ring_rows = ""
+        struct_rows = ""
         for f in aml:
             sev_color = SEVERITY_COLORS.get(f["severity"], "#999")
-            name = f.get("customer_name", f.get("account_id", "Unknown"))
+            name   = f.get("customer_name", f.get("account_id", "Unknown"))
             amount = f.get("total_laundered_zar", f.get("total_structured_amount", 0))
-            hops = f.get("hops", len(f.get("txn_ids", [])))
-            aml_rows += (
-                f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{name}</td>"
-                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{hops} accounts</td>"
-                f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{amount:,.2f}</td>"
+            row = (
                 f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>"
                 f"<span style='color:{sev_color}'>{f['severity']}</span></td></tr>"
             )
+            if f.get("type") == "AML_SMURFING_RING":
+                size = f"{f.get('hops', 0)} accounts"
+                ring_rows += (
+                    f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{name}</td>"
+                    f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{size}</td>"
+                    f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{amount:,.2f}</td>"
+                    + row
+                )
+            else:
+                size = f"{f.get('txn_count', 0)} txns"
+                struct_rows += (
+                    f"<tr><td style='padding:6px 10px;border-bottom:1px solid #eee'>{name}</td>"
+                    f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>{size}</td>"
+                    f"<td style='padding:6px 10px;border-bottom:1px solid #eee'>R{amount:,.2f}</td>"
+                    + row
+                )
+        if not ring_rows:
+            ring_rows = "<tr><td colspan='4' style='padding:10px;color:#999'>None detected</td></tr>"
+        if not struct_rows:
+            struct_rows = "<tr><td colspan='4' style='padding:10px;color:#999'>None detected</td></tr>"
 
         glitch_rows = ""
         for f in glitch:
@@ -225,15 +242,25 @@ class AlertEngine:
           </div>
 
           <div style="padding:0 20px 20px">
-            <h3>AML Findings (Showing top {len(aml)} of {total_aml} detected)</h3>
-            <table width="100%" style="border-collapse:collapse;font-size:13px">
+            <h3 style="margin-top:16px">🔴 Smurfing Rings (Showing top {len([f for f in aml if f.get('type')=='AML_SMURFING_RING'])} of {sum(1 for f in aml if f.get('type')=='AML_SMURFING_RING')} detected)</h3>
+            <table width="100%" style="border-collapse:collapse;font-size:13px;margin-bottom:16px">
               <tr style="background:#f7fafc">
                 <th style="padding:8px 10px;text-align:left">Customer</th>
                 <th style="padding:8px 10px;text-align:left">Ring Size</th>
                 <th style="padding:8px 10px;text-align:left">Amount</th>
                 <th style="padding:8px 10px;text-align:left">Severity</th>
               </tr>
-              {aml_rows}
+              {ring_rows}
+            </table>
+            <h3 style="margin-top:16px">🟡 Structuring Patterns (Showing top {len([f for f in aml if f.get('type')=='AML_STRUCTURING'])} detected)</h3>
+            <table width="100%" style="border-collapse:collapse;font-size:13px;margin-bottom:16px">
+              <tr style="background:#f7fafc">
+                <th style="padding:8px 10px;text-align:left">Customer</th>
+                <th style="padding:8px 10px;text-align:left">Txn Count</th>
+                <th style="padding:8px 10px;text-align:left">Amount</th>
+                <th style="padding:8px 10px;text-align:left">Severity</th>
+              </tr>
+              {struct_rows}
             </table>
             <h3>Payment Glitch Findings (Showing top {len(glitch)} of {total_glitch} detected)</h3>
             <table width="100%" style="border-collapse:collapse;font-size:13px">
