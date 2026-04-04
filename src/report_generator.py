@@ -62,13 +62,17 @@ def generate_report(aml_findings: list, glitch_findings: list,
             hops_label = str(f.get("hops", len(txn_ids)))
             id_label   = ring_id
             type_label = "Smurfing Ring"
-            # Query by txn_id list — most reliable
-            ids_str    = ", ".join(f"'{t}'" for t in txn_ids)
-            cypher     = f"MATCH path = (a:Account)-[:SENT]->(t:Transaction)-[:TO]->(b:Account) WHERE t.txn_id IN [{ids_str}] RETURN path"
+            # Query by ring_id — shows only THIS ring's customers by name
+            cypher = (
+                f"MATCH (c1:Customer)-[:OWNS]->(a:Account)-[:SENT]->(t:Transaction "
+                f"{{aml_ring: '{ring_id}'}})-[:TO]->(b:Account)<-[:OWNS]-(c2:Customer) "
+                f"RETURN c1, a, t, b, c2"
+            )
+            
         else:
             # Structuring
             acct       = f.get("account_id", "")
-            txn_count  = f.get("suspicious_txn_count", len(txn_ids))
+            txn_count  = f.get("txn_count", f.get("suspicious_txn_count", len(txn_ids)))
             hops_label = str(txn_count) + " txns"
             id_label   = acct
             type_label = "Structuring"
