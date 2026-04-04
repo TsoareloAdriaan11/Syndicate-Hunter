@@ -12,19 +12,21 @@ logger = logging.getLogger(__name__)
 # Reverted to tag-based grouping to prevent graph permutation duplicates.
 # Groups all transactions by their specific ring ID so you only get 1 alert per syndicate.
 RING_DETECTION_QUERY = """
-MATCH (c:Customer)-[:OWNS]->(a:Account)-[:SENT]->(t:Transaction)
+MATCH (t:Transaction)
 WHERE t.aml_ring IS NOT NULL
-WITH t.aml_ring AS ring_id, 
-     collect(DISTINCT a.account_id) AS accounts,
-     collect(DISTINCT c.full_name) AS names,
-     sum(t.amount) AS total_laundered_zar,
-     collect(DISTINCT t.txn_id) AS txn_ids
-RETURN 
+WITH t.aml_ring AS ring_id,
+     collect(DISTINCT t.txn_id) AS txn_ids,
+     sum(t.amount)              AS total_laundered_zar
+MATCH (a:Account)-[:SENT]->(tx:Transaction {aml_ring: ring_id})
+WITH ring_id, txn_ids, total_laundered_zar,
+     collect(DISTINCT a.account_id) AS accounts
+MATCH (c:Customer)-[:OWNS]->(first_acc:Account {account_id: accounts[0]})
+RETURN
     ring_id,
-    ring_id AS ring_account,
-    accounts[0] AS customer_id,
-    names[0] AS customer_name,
-    size(accounts) AS hops,
+    ring_id                AS ring_account,
+    c.customer_id          AS customer_id,
+    c.full_name            AS customer_name,
+    size(accounts)         AS hops,
     total_laundered_zar,
     txn_ids
 ORDER BY total_laundered_zar DESC
@@ -60,6 +62,9 @@ class AMLDetector:
         
         findings = []
         for r in results:
+            if r.get("hops", 0) == 0:
+                logger.warning("Skipping ring %s — 0 accounts detected (data integrity issue)", r.get("ring_id"))
+                continue
             findings.append({
                 "type": "AML_SMURFING_RING",
                 "severity": "CRITICAL" if r["total_laundered_zar"] > 50000 else "HIGH",
